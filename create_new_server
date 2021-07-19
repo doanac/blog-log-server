@@ -1,0 +1,48 @@
+#!/bin/sh -e
+
+if [ $# -ne 2 ] ; then
+	echo "ERROR: $0 <pki-cert-dir> <domain-nme>"
+	exit 1
+fi
+certs_dir=$1
+domain=$2
+key=tls.key
+cert=tls.pem
+chain=ca-chain.pem
+
+mkdir $(dirname 0)/certs
+cd $(dirname $0)/certs
+
+pushd ${certs_dir}
+
+if [ ! -f factory_ca.key ] ; then
+	echo "ERROR: ${certs_dir} does not appear value. Must have a file, factory_ca.key."
+	exit 1
+fi
+
+cat >ca.cnf <<EOF
+[req]
+prompt = no
+distinguished_name = dn
+req_extensions = ext
+
+[dn]
+CN = $domain
+
+[ext]
+keyUsage=critical, digitalSignature, keyEncipherment, keyAgreement
+extendedKeyUsage=critical, serverAuth
+subjectAltName=DNS:${domain}
+EOF
+
+openssl ecparam -genkey -name prime256v1 | openssl ec -out $key
+openssl req -new -config ca.cnf -key $key -out $cert.csr
+rm ca.cnf
+
+./sign_tls_csr $cert.csr > $cert
+rm ${cert}.csr
+
+popd
+mv ${certs_dir}/tls* ./
+cat ${certs_dir}/factory_ca.pem ${certs_dir}/local-ca.pem > ${chain}
+chmod +r ./tls.key  # bad idea, but allows nginx (root inside docker) permission
